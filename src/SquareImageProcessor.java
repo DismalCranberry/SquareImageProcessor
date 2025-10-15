@@ -26,9 +26,7 @@ public class SquareImageProcessor {
             outputFolder.mkdirs();
         }
 
-        File[] files = inputFolder.listFiles((_, name) ->
-                name.toLowerCase().endsWith(".jpg") || name.toLowerCase().endsWith(".png")
-        );
+        File[] files = inputFolder.listFiles((_, name) -> name.toLowerCase().endsWith(".jpg") || name.toLowerCase().endsWith(".png"));
 
         if (files == null || files.length == 0) {
             System.out.println("No image files found in input folder.");
@@ -91,7 +89,6 @@ public class SquareImageProcessor {
                 } else {
                     ImageIO.write(finalImage, format, outputFile);
                 }
-
                 System.out.println("Processed: " + file.getName());
 
             } catch (IOException e) {
