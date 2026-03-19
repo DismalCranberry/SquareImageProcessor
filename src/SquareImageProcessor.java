@@ -12,7 +12,8 @@ import java.util.Iterator;
 public class SquareImageProcessor {
 
     private static final int WHITE_THRESHOLD = 245;
-    private static final int PADDING = 4000;
+    private static final int PADDING = 20;
+    private static final int IMAGE_SIZE = 1000;
 
     public static void main(String[] args) {
         String inputPath = "res/input";
@@ -59,7 +60,7 @@ public class SquareImageProcessor {
                 g2d.drawImage(cropped, x, y, null);
                 g2d.dispose();
 
-                int newSize = 1000;
+                int newSize = IMAGE_SIZE;
                 BufferedImage finalImage = new BufferedImage(newSize, newSize, BufferedImage.TYPE_INT_RGB);
                 Graphics2D gScaled = finalImage.createGraphics();
                 gScaled.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
