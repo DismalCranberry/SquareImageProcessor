@@ -10,6 +10,10 @@ import java.io.IOException;
 import java.util.Iterator;
 
 public class SquareImageProcessor {
+
+    private static final int WHITE_THRESHOLD = 245;
+    private static final int PADDING = 4000;
+
     public static void main(String[] args) {
         String inputPath = "res/input";
         String outputPath = "res/output";
@@ -36,13 +40,10 @@ public class SquareImageProcessor {
         for (File file : files) {
             try {
                 BufferedImage original = ImageIO.read(file);
-                if (original == null) {
-                    System.out.println("Skipping non-image file: " + file.getName());
-                    continue;
-                }
+                BufferedImage cropped = cropWhiteMargins(original);
 
-                int width = original.getWidth();
-                int height = original.getHeight();
+                int width = cropped.getWidth();
+                int height = cropped.getHeight();
                 int size = Math.max(width, height);
 
                 BufferedImage squareImage = new BufferedImage(size, size, BufferedImage.TYPE_INT_RGB);
@@ -55,21 +56,17 @@ public class SquareImageProcessor {
 
                 int x = (size - width) / 2;
                 int y = (size - height) / 2;
-                g2d.drawImage(original, x, y, null);
+                g2d.drawImage(cropped, x, y, null);
                 g2d.dispose();
 
-                BufferedImage finalImage = squareImage;
-                if (size > 1000) {
-                    int newSize = 1000;
-                    BufferedImage scaled = new BufferedImage(newSize, newSize, BufferedImage.TYPE_INT_RGB);
-                    Graphics2D gScaled = scaled.createGraphics();
-                    gScaled.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-                    gScaled.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-                    gScaled.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    gScaled.drawImage(squareImage, 0, 0, newSize, newSize, null);
-                    gScaled.dispose();
-                    finalImage = scaled;
-                }
+                int newSize = 1000;
+                BufferedImage finalImage = new BufferedImage(newSize, newSize, BufferedImage.TYPE_INT_RGB);
+                Graphics2D gScaled = finalImage.createGraphics();
+                gScaled.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                gScaled.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+                gScaled.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                gScaled.drawImage(squareImage, 0, 0, newSize, newSize, null);
+                gScaled.dispose();
 
                 String format = file.getName().toLowerCase().endsWith(".png") ? "png" : "jpg";
                 File outputFile = new File(outputFolder, file.getName());
@@ -90,11 +87,79 @@ public class SquareImageProcessor {
                     ImageIO.write(finalImage, format, outputFile);
                 }
                 System.out.println("Processed: " + file.getName());
-
             } catch (IOException e) {
                 System.out.println("Error processing " + file.getName() + ": " + e.getMessage());
             }
         }
         System.out.println("✅ All done!");
+    }
+
+    private static BufferedImage cropWhiteMargins(BufferedImage image) {
+        int width = image.getWidth();
+        int height = image.getHeight();
+
+        int top = 0;
+        int bottom = height - 1;
+        int left = 0;
+        int right = width - 1;
+
+        // Find top
+        while (top < height && isRowWhite(image, top)) {
+            top++;
+        }
+
+        // Find bottom
+        while (bottom >= top && isRowWhite(image, bottom)) {
+            bottom--;
+        }
+
+        // Find left
+        while (left < width && isColumnWhite(image, left, top, bottom)) {
+            left++;
+        }
+
+        // Find right
+        while (right >= left && isColumnWhite(image, right, top, bottom)) {
+            right--;
+        }
+
+        // If image is fully white, return original
+        if (left > right || top > bottom) {
+            return image;
+        }
+
+        // Add padding back
+        left = Math.max(0, left - SquareImageProcessor.PADDING);
+        top = Math.max(0, top - SquareImageProcessor.PADDING);
+        right = Math.min(width - 1, right + SquareImageProcessor.PADDING);
+        bottom = Math.min(height - 1, bottom + SquareImageProcessor.PADDING);
+
+        return image.getSubimage(left, top, right - left + 1, bottom - top + 1);
+    }
+
+    private static boolean isRowWhite(BufferedImage image, int y) {
+        for (int x = 0; x < image.getWidth(); x++) {
+            if (!isWhite(image.getRGB(x, y))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isColumnWhite(BufferedImage image, int x, int top, int bottom) {
+        for (int y = top; y <= bottom; y++) {
+            if (!isWhite(image.getRGB(x, y))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isWhite(int rgb) {
+        int r = (rgb >> 16) & 0xFF;
+        int g = (rgb >> 8) & 0xFF;
+        int b = rgb & 0xFF;
+
+        return r >= WHITE_THRESHOLD && g >= WHITE_THRESHOLD && b >= WHITE_THRESHOLD;
     }
 }
