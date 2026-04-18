@@ -31,7 +31,10 @@ public class SquareImageProcessor {
             outputFolder.mkdirs();
         }
 
-        File[] files = inputFolder.listFiles((_, name) -> name.toLowerCase().endsWith(".jpg") || name.toLowerCase().endsWith(".png"));
+        File[] files = inputFolder.listFiles((_, name) -> {
+            String lower = name.toLowerCase();
+            return lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".bmp");
+        });
 
         if (files == null || files.length == 0) {
             System.out.println("No image files found in input folder.");
@@ -69,7 +72,8 @@ public class SquareImageProcessor {
                 gScaled.drawImage(squareImage, 0, 0, newSize, newSize, null);
                 gScaled.dispose();
 
-                String format = file.getName().toLowerCase().endsWith(".png") ? "png" : "jpg";
+                String lower = file.getName().toLowerCase();
+                String format = lower.endsWith(".png") ? "png" : "jpg";
                 File outputFile = new File(outputFolder, file.getName());
 
                 if (format.equals("jpg")) {
