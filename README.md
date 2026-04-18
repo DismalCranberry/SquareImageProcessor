@@ -9,7 +9,7 @@ A simple Java tool for preparing product images by automatically cropping white 
 * Adds configurable padding after cropping
 * Converts images to a square format (1:1)
 * Resizes output to **1000 × 1000**
-* Supports **JPG** and **PNG**
+* Supports **JPG**, **PNG**, **JPEG**, **BMP**,
 * High-quality scaling and JPEG compression
 
 ## Folder Structure
