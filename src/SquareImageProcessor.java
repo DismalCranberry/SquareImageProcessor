@@ -96,7 +96,7 @@ public class SquareImageProcessor {
                 System.out.println("Error processing " + file.getName() + ": " + e.getMessage());
             }
         }
-        System.out.println("✅ All done!");
+        System.out.println("All done!");
     }
 
     private static BufferedImage cropWhiteMargins(BufferedImage image) {
