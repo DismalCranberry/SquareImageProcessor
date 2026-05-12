@@ -18,20 +18,22 @@ public class SquareImageProcessor {
     public static void main(String[] args) {
         String inputPath = "res/input";
         String outputPath = "res/output";
+        String logosOutputPath = outputPath + "/logos";
+        String productsOutputPath = outputPath + "/product-images";
 
         File inputFolder = new File(inputPath);
-        File outputFolder = new File(outputPath);
+        File logosOutputFolder = new File(logosOutputPath);
+        File productsOutputFolder = new File(productsOutputPath);
 
         if (!inputFolder.exists() || !inputFolder.isDirectory()) {
             System.out.println("Input folder is invalid: " + inputPath);
             return;
         }
 
-        if (!outputFolder.exists()) {
-            outputFolder.mkdirs();
-        }
+        logosOutputFolder.mkdirs();
+        productsOutputFolder.mkdirs();
 
-        File[] files = inputFolder.listFiles((_, name) -> {
+        File[] files = inputFolder.listFiles((dir, name) -> {
             String lower = name.toLowerCase();
             return lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".bmp");
         });
@@ -44,59 +46,100 @@ public class SquareImageProcessor {
         for (File file : files) {
             try {
                 BufferedImage original = ImageIO.read(file);
+
+                if (original == null) {
+                    System.out.println("Could not read image: " + file.getName());
+                    continue;
+                }
+
+                String originalName = file.getName();
+                String lowerName = originalName.toLowerCase();
+                boolean isLogo = lowerName.contains("logo");
+
                 BufferedImage cropped = cropWhiteMargins(original);
 
                 int width = cropped.getWidth();
                 int height = cropped.getHeight();
-                int size = Math.max(width, height);
+                int squareSize = Math.max(width, height);
 
-                BufferedImage squareImage = new BufferedImage(size, size, BufferedImage.TYPE_INT_RGB);
-                Graphics2D g2d = squareImage.createGraphics();
-                g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-                g2d.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2d.setColor(Color.WHITE);
-                g2d.fillRect(0, 0, size, size);
+                BufferedImage squareImage = new BufferedImage(squareSize, squareSize, BufferedImage.TYPE_INT_RGB);
 
-                int x = (size - width) / 2;
-                int y = (size - height) / 2;
-                g2d.drawImage(cropped, x, y, null);
-                g2d.dispose();
+                Graphics2D gSquare = squareImage.createGraphics();
+                applyQualityHints(gSquare);
 
-                int newSize = IMAGE_SIZE;
-                BufferedImage finalImage = new BufferedImage(newSize, newSize, BufferedImage.TYPE_INT_RGB);
-                Graphics2D gScaled = finalImage.createGraphics();
-                gScaled.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-                gScaled.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-                gScaled.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                gScaled.drawImage(squareImage, 0, 0, newSize, newSize, null);
-                gScaled.dispose();
+                gSquare.setColor(Color.WHITE);
+                gSquare.fillRect(0, 0, squareSize, squareSize);
 
-                String lower = file.getName().toLowerCase();
-                String format = lower.endsWith(".png") ? "png" : "jpg";
-                File outputFile = new File(outputFolder, file.getName());
+                int x = (squareSize - width) / 2;
+                int y = (squareSize - height) / 2;
 
-                if (format.equals("jpg")) {
-                    Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpg");
-                    ImageWriter writer = writers.next();
-                    ImageWriteParam param = writer.getDefaultWriteParam();
-                    param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
-                    param.setCompressionQuality(1.0f);
+                gSquare.drawImage(cropped, x, y, null);
+                gSquare.dispose();
 
-                    try (FileImageOutputStream output = new FileImageOutputStream(outputFile)) {
-                        writer.setOutput(output);
-                        writer.write(null, new IIOImage(finalImage, null, null), param);
-                    }
-                    writer.dispose();
+                BufferedImage finalImage;
+
+                if (isLogo) {
+
+                    // Sets the logo to 1:1 without scaling, as logos often look better when not resized
+                    finalImage = squareImage;
+
                 } else {
-                    ImageIO.write(finalImage, format, outputFile);
+
+                    finalImage = new BufferedImage(IMAGE_SIZE, IMAGE_SIZE, BufferedImage.TYPE_INT_RGB);
+
+                    Graphics2D gScaled = finalImage.createGraphics();
+                    applyQualityHints(gScaled);
+
+                    gScaled.drawImage(squareImage, 0, 0, IMAGE_SIZE, IMAGE_SIZE, null);
+                    gScaled.dispose();
                 }
+
+                int dotIndex = originalName.lastIndexOf('.');
+                String baseName = dotIndex > 0 ? originalName.substring(0, dotIndex) : originalName;
+
+                String newName = baseName + "_1.jpg";
+                File targetFolder = isLogo ? logosOutputFolder : productsOutputFolder;
+                File outputFile = new File(targetFolder, newName);
+
+                saveAsJpeg(finalImage, outputFile);
+
                 System.out.println("Processed: " + file.getName());
+
             } catch (IOException e) {
                 System.out.println("Error processing " + file.getName() + ": " + e.getMessage());
             }
         }
         System.out.println("All done!");
+    }
+
+    private static void applyQualityHints(Graphics2D g) {
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+        g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_ALPHA_INTERPOLATION, RenderingHints.VALUE_ALPHA_INTERPOLATION_QUALITY);
+        g.setRenderingHint(RenderingHints.KEY_COLOR_RENDERING, RenderingHints.VALUE_COLOR_RENDER_QUALITY);
+        g.setRenderingHint(RenderingHints.KEY_DITHERING, RenderingHints.VALUE_DITHER_DISABLE);
+    }
+
+    private static void saveAsJpeg(BufferedImage image, File outputFile) throws IOException {
+        Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpg");
+
+        if (!writers.hasNext()) {
+            throw new IOException("No JPEG writer found");
+        }
+
+        ImageWriter writer = writers.next();
+
+        ImageWriteParam param = writer.getDefaultWriteParam();
+        param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+        param.setCompressionQuality(1.0f);
+
+        try (FileImageOutputStream output = new FileImageOutputStream(outputFile)) {
+            writer.setOutput(output);
+            writer.write(null, new IIOImage(image, null, null), param);
+        } finally {
+            writer.dispose();
+        }
     }
 
     private static BufferedImage cropWhiteMargins(BufferedImage image) {
@@ -108,36 +151,30 @@ public class SquareImageProcessor {
         int left = 0;
         int right = width - 1;
 
-        // Find top
         while (top < height && isRowWhite(image, top)) {
             top++;
         }
 
-        // Find bottom
         while (bottom >= top && isRowWhite(image, bottom)) {
             bottom--;
         }
 
-        // Find left
         while (left < width && isColumnWhite(image, left, top, bottom)) {
             left++;
         }
 
-        // Find right
         while (right >= left && isColumnWhite(image, right, top, bottom)) {
             right--;
         }
 
-        // If image is fully white, return original
         if (left > right || top > bottom) {
             return image;
         }
 
-        // Add padding back
-        left = Math.max(0, left - SquareImageProcessor.PADDING);
-        top = Math.max(0, top - SquareImageProcessor.PADDING);
-        right = Math.min(width - 1, right + SquareImageProcessor.PADDING);
-        bottom = Math.min(height - 1, bottom + SquareImageProcessor.PADDING);
+        left = Math.max(0, left - PADDING);
+        top = Math.max(0, top - PADDING);
+        right = Math.min(width - 1, right + PADDING);
+        bottom = Math.min(height - 1, bottom + PADDING);
 
         return image.getSubimage(left, top, right - left + 1, bottom - top + 1);
     }
