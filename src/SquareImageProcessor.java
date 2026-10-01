@@ -10,9 +10,14 @@ import java.io.IOException;
 import java.util.Iterator;
 
 public class SquareImageProcessor {
-
+    //Adjust values as needed for your specific use case
+    // Threshold for determining if a pixel is considered white. Pixels with RGB values above this threshold are treated as white.
     private static final int WHITE_THRESHOLD = 245;
+
+    // Padding to add around the cropped image. This ensures that the final image isn't too tight around the content.
     private static final int PADDING = 20;
+
+    // Final size for the output images. All product images will be resized to this dimension.
     private static final int IMAGE_SIZE = 1000;
 
     public static void main(String[] args) {
@@ -79,10 +84,8 @@ public class SquareImageProcessor {
                 BufferedImage finalImage;
 
                 if (isLogo) {
-
                     // Sets the logo to 1:1 without scaling, as logos often look better when not resized
                     finalImage = squareImage;
-
                 } else {
 
                     finalImage = new BufferedImage(IMAGE_SIZE, IMAGE_SIZE, BufferedImage.TYPE_INT_RGB);
@@ -197,10 +200,25 @@ public class SquareImageProcessor {
         return true;
     }
 
-    private static boolean isWhite(int rgb) {
-        int r = (rgb >> 16) & 0xFF;
-        int g = (rgb >> 8) & 0xFF;
-        int b = rgb & 0xFF;
+    private static boolean isWhite(int argb) {
+        int a = (argb >>> 24) & 0xFF;
+
+        // Fully transparent pixels (alpha = 0) are treated as white so transparent areas can be cropped.
+        // Higher threshold = fewer pixels are considered white.
+        // (a <= 10) is a good starting point for semi-transparent pixels
+        // This preserves faint shadows and near-white details instead of cropping them.
+        if (a == 0) {
+            return true;
+        }
+
+        int r = (argb >> 16) & 0xFF;
+        int g = (argb >> 8) & 0xFF;
+        int b = argb & 0xFF;
+
+        // Composite semi-transparent pixels onto white
+        r = (r * a + 255 * (255 - a)) / 255;
+        g = (g * a + 255 * (255 - a)) / 255;
+        b = (b * a + 255 * (255 - a)) / 255;
 
         return r >= WHITE_THRESHOLD && g >= WHITE_THRESHOLD && b >= WHITE_THRESHOLD;
     }
