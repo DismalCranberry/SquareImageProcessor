@@ -40,7 +40,7 @@ public class SquareImageProcessor {
 
         File[] files = inputFolder.listFiles((dir, name) -> {
             String lower = name.toLowerCase();
-            return lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".bmp");
+            return lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".bmp") || lower.endsWith(".webp");
         });
 
         if (files == null || files.length == 0) {
@@ -50,7 +50,13 @@ public class SquareImageProcessor {
 
         for (File file : files) {
             try {
-                BufferedImage original = ImageIO.read(file);
+                BufferedImage original;
+
+                if (file.getName().toLowerCase().endsWith(".webp")) {
+                    original = WebPReader.read(file);
+                } else {
+                    original = ImageIO.read(file);
+                }
 
                 if (original == null) {
                     System.out.println("Could not read image: " + file.getName());
