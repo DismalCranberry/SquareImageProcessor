@@ -58,7 +58,19 @@ public final class WebPReader {
                     vp8lStart = pos + 8;
                     vp8lLength = (int) length;
                 }
-                case "VP8 " -> lossy = true;
+                case "VP8 " -> {
+                    int start = pos + 8; // Start of VP8 chunk payload
+
+                    if (length < 10 || (data[start] & 1) != 0 || (data[start + 3] & 0xff) != 0x9d || (data[start + 4] & 0xff) != 0x01 || (data[start + 5] & 0xff) != 0x2a) {
+                        throw new IOException("Invalid VP8 key-frame header");
+                    }
+
+                    int width = ((data[start + 6] & 0xff) | ((data[start + 7] & 0xff) << 8)) & 0x3fff;
+                    int height = ((data[start + 8] & 0xff) | ((data[start + 9] & 0xff) << 8)) & 0x3fff;
+
+                    checkedCount(width, height); // Existing helper validates dimensions
+                    lossy = true;
+                }
             }
             pos = (int) next;
         }
@@ -76,9 +88,6 @@ public final class WebPReader {
         int height = bits.read(14) + 1;
         bits.read(1); // alpha hint, not a guarantee
         if (bits.read(3) != 0) throw new IOException("Unsupported VP8L version");
-        if ((long) width * height > MAX_PIXELS) {
-            throw new IOException("Image exceeds safety limit of " + MAX_PIXELS + " pixels");
-        }
         int[] argb = decodeMain(bits, width, height);
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
         image.setRGB(0, 0, width, height, argb, 0, width);
@@ -110,7 +119,7 @@ public final class WebPReader {
                 throw new IOException("FFmpeg timed out decoding: " + file.getName());
             }
             if (process.exitValue() != 0) {
-                String errors = new String(Files.readAllBytes(log), StandardCharsets.UTF_8).trim();
+                String errors = Files.readString(log).trim();
                 throw new IOException("FFmpeg could not decode " + file.getName() + (errors.isEmpty() ? "" : ": " + errors));
             }
             BufferedImage image = javax.imageio.ImageIO.read(png.toFile());
@@ -141,25 +150,6 @@ public final class WebPReader {
         return process;
     }
 
-    /**
-     * Inspects the file by validating headers and describing supported chunks.
-     */
-    public static void inspect(File file) throws IOException {
-        byte[] data = Files.readAllBytes(file.toPath());
-        if (data.length < 12 || !fourCC(data, 0).equals("RIFF") || !fourCC(data, 8).equals("WEBP"))
-            throw new IOException("Invalid WebP file");
-        long end = unsigned32(data, 4) + 8;
-        if (end > data.length) throw new IOException("Truncated WebP file");
-        for (long p = 12; p < end; ) {
-            if (end - p < 8) throw new IOException("Invalid chunk header");
-            int pos = (int) p;
-            long len = unsigned32(data, pos + 4);
-            System.out.println("Chunk: " + fourCC(data, pos) + ", bytes: " + len);
-            p += 8 + len + (len & 1);
-            if (p > end) throw new IOException("Invalid chunk length");
-        }
-    }
-
     private static int[] decodeMain(Bits b, int width, int height) throws IOException {
         int codedWidth = width;
         List<Transform> transforms = new ArrayList<>();
@@ -168,7 +158,7 @@ public final class WebPReader {
             int type = b.read(2);
             if (used[type]) throw new IOException("Duplicate VP8L transform: " + type);
             used[type] = true;
-            Transform t = new Transform(type, codedWidth, height);
+            Transform t = new Transform(type);
             if (type == 0 || type == 1) {
                 t.bits = b.read(3) + 2;
                 t.dataWidth = ceilDiv(codedWidth, 1 << t.bits);
@@ -260,11 +250,12 @@ public final class WebPReader {
                     if (cache != null) cache[cacheIndex(pixel, cacheBits)] = pixel;
                 }
             } else {
-                if (cache == null || green - 280 >= cacheSize)
+                if (cache == null || green - 280 >= cacheSize) {
                     throw new IOException("Invalid VP8L color cache reference");
+                }
                 int pixel = cache[green - 280];
                 out[p++] = pixel;
-                if (cache != null) cache[cacheIndex(pixel, cacheBits)] = pixel;
+                cache[cacheIndex(pixel, cacheBits)] = pixel;
             }
         }
         return out;
@@ -428,7 +419,7 @@ public final class WebPReader {
         int type, bits, dataWidth;
         int[] data;
 
-        Transform(int type, int width, int height) {
+        Transform(int type) {
             this.type = type;
         }
     }
@@ -484,7 +475,7 @@ public final class WebPReader {
                     int mode = (t.data[(y >> t.bits) * t.dataWidth + (x >> t.bits)] >>> 8) & 255;
                     int left = data[pos - 1], top = data[pos - width];
                     int topLeft = data[pos - width - 1];
-                    int topRight = x == width - 1 ? data[pos - width - (width - 1)] : data[pos - width + 1];
+                    int topRight = (x == width - 1) ? data[y * width] : data[pos - width + 1];
                     predicted = predict(mode, left, top, topLeft, topRight);
                 }
                 data[pos] = addPixels(data[pos], predicted);
@@ -542,8 +533,7 @@ public final class WebPReader {
                 }
                 return result;
             }
-            default:
-                throw new IOException("Invalid VP8L predictor mode: " + mode);
+            default: throw new IOException("Invalid VP8L predictor mode: " + mode);
         }
     }
 
@@ -565,8 +555,8 @@ public final class WebPReader {
         return (int) total;
     }
 
-    private static int ceilDiv(int x, int y) {
-        return (x + y - 1) / y;
+    private static int ceilDiv(int dividend, int divisor) {
+        return (dividend + divisor - 1) / divisor;
     }
 
     private static String fourCC(byte[] d, int p) {

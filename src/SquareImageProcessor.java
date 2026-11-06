@@ -35,12 +35,20 @@ public class SquareImageProcessor {
             return;
         }
 
-        logosOutputFolder.mkdirs();
-        productsOutputFolder.mkdirs();
+        try {
+            java.nio.file.Files.createDirectories(logosOutputFolder.toPath());
+            java.nio.file.Files.createDirectories(productsOutputFolder.toPath());
+        } catch (IOException e) {
+            System.err.println("Could not create output folders: " + e.getMessage());
+            return;
+        }
 
-        File[] files = inputFolder.listFiles((dir, name) -> {
-            String lower = name.toLowerCase();
-            return lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".bmp") || lower.endsWith(".webp");
+        File[] files = inputFolder.listFiles(file -> {
+            if (!file.isFile()) {
+                return false;
+            }
+            String lower = file.getName().toLowerCase(java.util.Locale.ROOT);
+            return lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".bmp") || lower.endsWith(".wbmp") || lower.endsWith(".webp") || lower.endsWith(".tif") || lower.endsWith(".tiff");
         });
 
         if (files == null || files.length == 0) {
