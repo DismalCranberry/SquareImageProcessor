@@ -7,6 +7,8 @@ import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Iterator;
 
 public class SquareImageProcessor {
@@ -20,17 +22,25 @@ public class SquareImageProcessor {
     // Final size for the output images. All product images will be resized to this dimension.
     private static final int IMAGE_SIZE = 1000;
 
+    // Images directly in res/input retain their original base names.
+    // Images in immediate subfolders use their parent folder as the base name.
+    private static final Comparator<File> NAME_ORDER = Comparator.comparing(File::getName, String.CASE_INSENSITIVE_ORDER).thenComparing(File::getName);
+
     public static void main(String[] args) {
         String inputPath = "res/input";
         String outputPath = "res/output";
         String logosOutputPath = outputPath + "/logos";
         String productsOutputPath = outputPath + "/product-images";
 
+        if (args.length > 0) {
+            System.out.println("Note: rename arguments are ignored; names come from subfolders or original files.");
+        }
+
         File inputFolder = new File(inputPath);
         File logosOutputFolder = new File(logosOutputPath);
         File productsOutputFolder = new File(productsOutputPath);
 
-        if (!inputFolder.exists() || !inputFolder.isDirectory()) {
+        if (!inputFolder.isDirectory()) {
             System.out.println("Input folder is invalid: " + inputPath);
             return;
         }
@@ -43,90 +53,150 @@ public class SquareImageProcessor {
             return;
         }
 
-        File[] files = inputFolder.listFiles(file -> {
-            if (!file.isFile()) {
-                return false;
+        File[] rootImages = listImages(inputFolder);
+        File[] subfolders = inputFolder.listFiles(File::isDirectory);
+        if (rootImages == null || subfolders == null) {
+            System.err.println("Could not list the input folder: " + inputPath);
+            return;
+        }
+        Arrays.sort(subfolders, NAME_ORDER);
+
+        int processedCount = 0;
+
+        // Process images directly inside res/input without adding _1
+        for (File image : rootImages) {
+            String originalName = image.getName();
+            int dotIndex = originalName.lastIndexOf('.');
+            String baseName = dotIndex > 0 ? originalName.substring(0, dotIndex) : originalName;
+
+            if (processImage(image, baseName, 1, logosOutputFolder, productsOutputFolder) > 1) {
+                processedCount++;
             }
+        }
+
+        // Еevery immediate input subfolder is a separate product/batch.
+        // Product images go into a matching output subfolder; logos remain in output/logos.
+        // Numbering starts at 1 in each input subfolder and increases for each saved image.
+        for (File folder : subfolders) {
+            String folderName = folder.getName();
+            if (!isValidBaseName(folderName)) {
+                System.out.println("Skipping subfolder with invalid output name: " + folderName);
+                continue;
+            }
+
+            File productSubfolder = new File(productsOutputFolder, folderName);
+            try {
+                java.nio.file.Files.createDirectories(productSubfolder.toPath());
+            } catch (IOException e) {
+                System.err.println("Could not create product output subfolder: " + productSubfolder.getPath() + ": " + e.getMessage());
+                continue;
+            }
+
+            File[] images = listImages(folder);
+            if (images == null) {
+                System.out.println("Could not list subfolder: " + folder.getPath());
+                continue;
+            }
+            int nextImageNumber = 1;
+            for (File image : images) {
+                int next = processImage(image, folderName, nextImageNumber, logosOutputFolder, productSubfolder);
+                if (next > nextImageNumber) {
+                    processedCount++;
+                }
+                nextImageNumber = next;
+            }
+        }
+
+        if (processedCount == 0) {
+            System.out.println("No readable images found in the input folder or its immediate subfolders.");
+        } else {
+            System.out.println("All done! Processed " + processedCount + " image(s).");
+        }
+    }
+
+    private static File[] listImages(File folder) {
+        File[] files = folder.listFiles(file -> {
+            if (!file.isFile()) return false;
             String lower = file.getName().toLowerCase(java.util.Locale.ROOT);
             return lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".bmp") || lower.endsWith(".wbmp") || lower.endsWith(".webp") || lower.endsWith(".tif") || lower.endsWith(".tiff");
         });
+        if (files != null) Arrays.sort(files, NAME_ORDER);
+        return files;
+    }
 
-        if (files == null || files.length == 0) {
-            System.out.println("No image files found in input folder.");
-            return;
+    // Returns the next available image number; leaves the number unchanged on failure.
+    private static int processImage(File file, String baseName, int nextImageNumber, File logosOutputFolder, File productsOutputFolder) {
+        try {
+            BufferedImage original;
+            if (file.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".webp")) {
+                original = WebPReader.read(file);
+            } else {
+                original = ImageIO.read(file);
+            }
+
+            if (original == null) {
+                System.out.println("Could not read image: " + file.getPath());
+                return nextImageNumber;
+            }
+
+            String lowerName = file.getName().toLowerCase(java.util.Locale.ROOT);
+            boolean isLogo = lowerName.contains("logo");
+            BufferedImage cropped = cropWhiteMargins(original);
+            int width = cropped.getWidth();
+            int height = cropped.getHeight();
+            int squareSize = Math.max(width, height);
+
+            BufferedImage squareImage = new BufferedImage(squareSize, squareSize, BufferedImage.TYPE_INT_RGB);
+            Graphics2D gSquare = squareImage.createGraphics();
+            applyQualityHints(gSquare);
+            gSquare.setColor(Color.WHITE);
+            gSquare.fillRect(0, 0, squareSize, squareSize);
+            int x = (squareSize - width) / 2;
+            int y = (squareSize - height) / 2;
+            gSquare.drawImage(cropped, x, y, null);
+            gSquare.dispose();
+
+            BufferedImage finalImage;
+            if (isLogo) {
+                // Keep logos square but do not resize them.
+                finalImage = squareImage;
+            } else {
+                finalImage = new BufferedImage(IMAGE_SIZE, IMAGE_SIZE, BufferedImage.TYPE_INT_RGB);
+                Graphics2D gScaled = finalImage.createGraphics();
+                applyQualityHints(gScaled);
+                gScaled.drawImage(squareImage, 0, 0, IMAGE_SIZE, IMAGE_SIZE, null);
+                gScaled.dispose();
+            }
+
+            // Never overwrite an existing output (including files from previous runs).
+            // Check output/logos and the selected product folder to keep numbering consistent.
+            int number = nextImageNumber;
+            String candidateName;
+            do {
+                candidateName = baseName + "_" + number + ".jpg";
+                number++;
+            } while (new File(logosOutputFolder, candidateName).exists() || new File(productsOutputFolder, candidateName).exists());
+
+            File targetFolder = isLogo ? logosOutputFolder : productsOutputFolder;
+            File outputFile = new File(targetFolder, candidateName);
+            saveAsJpeg(finalImage, outputFile);
+            System.out.println("Processed: " + file.getPath() + " -> " + outputFile.getPath());
+            return number;
+        } catch (IOException e) {
+            System.out.println("Error processing " + file.getPath() + ": " + e.getMessage());
+            return nextImageNumber;
         }
+    }
 
-        for (File file : files) {
-            try {
-                BufferedImage original;
-
-                if (file.getName().toLowerCase().endsWith(".webp")) {
-                    original = WebPReader.read(file);
-                } else {
-                    original = ImageIO.read(file);
-                }
-
-                if (original == null) {
-                    System.out.println("Could not read image: " + file.getName());
-                    continue;
-                }
-
-                String originalName = file.getName();
-                String lowerName = originalName.toLowerCase();
-                boolean isLogo = lowerName.contains("logo");
-
-                BufferedImage cropped = cropWhiteMargins(original);
-
-                int width = cropped.getWidth();
-                int height = cropped.getHeight();
-                int squareSize = Math.max(width, height);
-
-                BufferedImage squareImage = new BufferedImage(squareSize, squareSize, BufferedImage.TYPE_INT_RGB);
-
-                Graphics2D gSquare = squareImage.createGraphics();
-                applyQualityHints(gSquare);
-
-                gSquare.setColor(Color.WHITE);
-                gSquare.fillRect(0, 0, squareSize, squareSize);
-
-                int x = (squareSize - width) / 2;
-                int y = (squareSize - height) / 2;
-
-                gSquare.drawImage(cropped, x, y, null);
-                gSquare.dispose();
-
-                BufferedImage finalImage;
-
-                if (isLogo) {
-                    // Sets the logo to 1:1 without scaling, as logos often look better when not resized
-                    finalImage = squareImage;
-                } else {
-
-                    finalImage = new BufferedImage(IMAGE_SIZE, IMAGE_SIZE, BufferedImage.TYPE_INT_RGB);
-
-                    Graphics2D gScaled = finalImage.createGraphics();
-                    applyQualityHints(gScaled);
-
-                    gScaled.drawImage(squareImage, 0, 0, IMAGE_SIZE, IMAGE_SIZE, null);
-                    gScaled.dispose();
-                }
-
-                int dotIndex = originalName.lastIndexOf('.');
-                String baseName = dotIndex > 0 ? originalName.substring(0, dotIndex) : originalName;
-
-                String newName = baseName + "_1.jpg";
-                File targetFolder = isLogo ? logosOutputFolder : productsOutputFolder;
-                File outputFile = new File(targetFolder, newName);
-
-                saveAsJpeg(finalImage, outputFile);
-
-                System.out.println("Processed: " + file.getName());
-
-            } catch (IOException e) {
-                System.out.println("Error processing " + file.getName() + ": " + e.getMessage());
+    private static boolean isValidBaseName(String name) {
+        if (name.isEmpty() || name.endsWith(".") || name.endsWith(" ")) return false;
+        String invalid = "\\/:*?\"<>|";
+        for (int i = 0; i < name.length(); i++) {
+            if (Character.isISOControl(name.charAt(i)) || invalid.indexOf(name.charAt(i)) >= 0) {
+                return false;
             }
         }
-        System.out.println("All done!");
+        return true;
     }
 
     private static void applyQualityHints(Graphics2D g) {

@@ -68,7 +68,7 @@ public final class WebPReader {
                     int width = ((data[start + 6] & 0xff) | ((data[start + 7] & 0xff) << 8)) & 0x3fff;
                     int height = ((data[start + 8] & 0xff) | ((data[start + 9] & 0xff) << 8)) & 0x3fff;
 
-                    checkedCount(width, height); // Existing helper validates dimensions
+                    checkedCount(width, height);
                     lossy = true;
                 }
             }
